@@ -85,7 +85,7 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_new_1params(JNIEnv* env, jo
     // thread
     int n_threads = std::max(1, std::min(8, (int) sysconf(_SC_NPROCESSORS_ONLN) - 2));
     LOGi("Using %d threads", n_threads);
-    g_params->n_ctx = 2048;
+    g_params->n_ctx = 512;
     g_params->n_threads = n_threads;
     g_params->n_threads_batch = n_threads;
 
@@ -95,12 +95,6 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_new_1params(JNIEnv* env, jo
 
     // model
     g_params->model = env->GetStringUTFChars(filename, 0);
-
-    // grammar
-//    const char* grammar_bytes = R"""(root  ::= (expr "=" term "\n")+
-//expr  ::= term ([-+*/] term)*
-//term  ::= [0-9]+)""";
-//    g_params->sparams.grammar = grammar_bytes;
 
     return reinterpret_cast<jlong>(g_params);
 }
@@ -321,7 +315,12 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_new_1batch(JNIEnv *, jobjec
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_androidpowerinfer_PowerinferAndroid_free_1batch(JNIEnv *, jobject, jlong batch_pointer) {
-    llama_batch_free(*reinterpret_cast<llama_batch *>(batch_pointer));
+    auto batch = reinterpret_cast<llama_batch*>(batch_pointer);
+    for (int i = 0; i < batch->n_tokens; ++i) {
+        free(batch->seq_id[i]);
+    }
+    free(batch->seq_id);
+    llama_batch_free(*batch);
 }
 
 extern "C"
@@ -355,7 +354,6 @@ JNIEXPORT jint JNICALL
 Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
         JNIEnv *env,
         jobject,
-        jlong jparams,
         jlong context_pointer,
         jlong batch_pointer,
         jstring jtext,
@@ -364,13 +362,11 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
 
     cached_token_chars.clear();
 
-    const auto params = reinterpret_cast<gpt_params*>(jparams);
     const auto text = env->GetStringUTFChars(jtext, 0);
     const auto context = reinterpret_cast<llama_context *>(context_pointer);
     const auto batch = reinterpret_cast<llama_batch *>(batch_pointer);
-    const auto prompt = params->prompt + text;
 
-    const auto tokens_list = llama_tokenize(context, prompt, 1);
+    const auto tokens_list = llama_tokenize(context, text, 1);
 
     auto n_ctx = llama_n_ctx(context);
     auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
@@ -424,26 +420,7 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1loop(
     if (!la_int_var_value) la_int_var_value = env->GetMethodID(la_int_var, "getValue", "()I");
     if (!la_int_var_inc) la_int_var_inc = env->GetMethodID(la_int_var, "inc", "()V");
 
-    auto n_vocab = llama_n_vocab(model);
-    auto logits = llama_get_logits_ith(context, batch->n_tokens - 1);
-    std::vector<llama_token_data> candidates;
-    candidates.reserve(n_vocab);
-    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
-        candidates.emplace_back(llama_token_data{ token_id, logits[token_id], 0.0f});
-    }
-    llama_token_data_array candidates_p = { candidates.data(), candidates.size(), false};
-    candidates_p = {candidates.data(), candidates.size(), false};
-
-    float tau = 0.5f; // Target cross-entropy
-    float eta = 0.05f; // Learning rate
-    float mu = 2.0f * tau; // Initial maximum cross-entropy
-    const llama_token new_token_id = llama_sample_token_mirostat_v2(
-            context,
-            &candidates_p,
-            tau,
-            eta,
-            &mu);
-
+    const llama_token new_token_id = llama_sampling_sample(sampler, context, context, 0);
     llama_sampling_accept(sampler, context, new_token_id, true);
 
     const auto n_cur = env->CallIntMethod(intvar_ncur, la_int_var_value);

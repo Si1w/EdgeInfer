@@ -64,7 +64,6 @@ class PowerinferAndroid {
     private external fun system_info(): String
 
     private external fun completion_init(
-        params: Long,
         context: Long,
         batch: Long,
         text: String,
@@ -124,7 +123,7 @@ class PowerinferAndroid {
     fun send(message: String): Flow<String> = flow {
         when (val state = threadLocalState.get()) {
             is State.Loaded -> {
-                val ncur = IntVar(completion_init(state.params,state.context, state.batch, message, nlen))
+                val ncur = IntVar(completion_init(state.context, state.batch, message, nlen))
                 Log.i(tag, "The completion has been initialized")
                 while (ncur.value <= nlen) {
                     val str = completion_loop(state.context, state.batch, state.sampling, nlen, ncur)
