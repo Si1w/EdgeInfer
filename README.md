@@ -14,6 +14,7 @@ This is a repo for Android application of Powerinfer.
 
 ```bash
 git clone https://github.com/SJTU-IPADS/PowerInfer.git
+cd android
 ```
 
 2. Open the project in Android Studio.
