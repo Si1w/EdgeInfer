@@ -71,6 +71,14 @@ class MainActivity(
                 ),
                 File(getExternalFilesDir(null), "bamboo-7b-v0.1.Q4_0.powerinfer.gguf")
             ),
+            Downloadable(
+                name = "Bamboo DPO (Q4)",
+                Uri.parse(
+                    "https://huggingface.co/PowerInfer/Bamboo-DPO-v0.1-gguf/" +
+                        "resolve/main/bamboo-7b-dpo-v0.1.Q4_0.powerinfer.gguf?download=true"
+                ),
+                File(getExternalFilesDir(null), "bamboo-7b-dpo-v0.1.Q4_0.powerinfer.gguf")
+            )
         )
 
         setContent {
