@@ -51,15 +51,6 @@ class PowerinferAndroid {
     private external fun free_batch(batch: Long)
     private external fun new_sampler(g_params: Long): Long
     private external fun free_sampler(sampler: Long)
-    private external fun bench_model(
-        context: Long,
-        model: Long,
-        batch: Long,
-        pp: Int,
-        tg: Int,
-        pl: Int,
-        nr: Int
-    ): String
 
     private external fun system_info(): String
 
@@ -67,7 +58,8 @@ class PowerinferAndroid {
         context: Long,
         batch: Long,
         text: String,
-        nLen: Int
+        nLen: Int,
+        jparams: Long,
     ): Int
 
     private external fun completion_loop(
@@ -79,19 +71,6 @@ class PowerinferAndroid {
     ): String?
 
     private external fun kv_cache_clear(context: Long)
-
-    suspend fun bench(pp: Int, tg: Int, pl: Int, nr: Int = 1): String {
-        return withContext(runLoop) {
-            when (val state = threadLocalState.get()) {
-                is State.Loaded -> {
-                    Log.d(tag, "bench(): $state")
-                    bench_model(state.context, state.model, state.batch, pp, tg, pl, nr)
-                }
-
-                else -> throw IllegalStateException("No model loaded")
-            }
-        }
-    }
 
     suspend fun load(pathToModel: String) {
         withContext(runLoop) {
@@ -123,7 +102,7 @@ class PowerinferAndroid {
     fun send(message: String): Flow<String> = flow {
         when (val state = threadLocalState.get()) {
             is State.Loaded -> {
-                val ncur = IntVar(completion_init(state.context, state.batch, message, nlen))
+                val ncur = IntVar(completion_init(state.context, state.batch, message, nlen, state.params))
                 Log.i(tag, "The completion has been initialized")
                 while (ncur.value <= nlen) {
                     val str = completion_loop(state.context, state.batch, state.sampling, nlen, ncur)

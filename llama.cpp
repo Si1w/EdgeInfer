@@ -97,7 +97,7 @@
 
 #define LLAMA_MAX_NODES 4096
 
-// 
+//
 // global variables (should be removed after a better design)
 //
 size_t vram_budget_bytes = 0;
@@ -215,7 +215,7 @@ static bool llama_reduce_vram_budget(size_t budget_bytes) {
         vram_budget_bytes -= budget_bytes;
         return true;
     }
-    
+
     return false;
 }
 
@@ -238,6 +238,7 @@ enum llm_arch {
     LLM_ARCH_STABLELM,
     LLM_ARCH_BAMBOO,
     LLM_ARCH_UNKNOWN,
+    LLM_ARCH_QWEN2,
 };
 
 static std::map<llm_arch, std::string> LLM_ARCH_NAMES = {
@@ -254,7 +255,7 @@ static std::map<llm_arch, std::string> LLM_ARCH_NAMES = {
     { LLM_ARCH_BLOOM,           "bloom"     },
     { LLM_ARCH_STABLELM,        "stablelm"  },
     { LLM_ARCH_BAMBOO,          "bamboo"    },
-
+    { LLM_ARCH_QWEN2,            "qwen2"    },
     { LLM_ARCH_UNKNOWN,         "unknown"   },
 };
 
@@ -602,6 +603,23 @@ static std::map<llm_arch, std::map<llm_tensor, std::string>> LLM_TENSOR_NAMES = 
         },
     },
     {
+            LLM_ARCH_QWEN2,
+            {
+            { LLM_TENSOR_TOKEN_EMBD,      "token_embd" },
+            { LLM_TENSOR_OUTPUT_NORM,     "output_norm" },
+            { LLM_TENSOR_OUTPUT,          "output" },
+            { LLM_TENSOR_ATTN_NORM,       "blk.%d.attn_norm" },
+            { LLM_TENSOR_ATTN_Q,          "blk.%d.attn_q" },
+            { LLM_TENSOR_ATTN_K,          "blk.%d.attn_k" },
+            { LLM_TENSOR_ATTN_V,          "blk.%d.attn_v" },
+            { LLM_TENSOR_ATTN_OUT,        "blk.%d.attn_output" },
+            { LLM_TENSOR_FFN_NORM,        "blk.%d.ffn_norm" },
+            { LLM_TENSOR_FFN_GATE,        "blk.%d.ffn_gate" },
+            { LLM_TENSOR_FFN_DOWN,        "blk.%d.ffn_down" },
+            { LLM_TENSOR_FFN_UP,          "blk.%d.ffn_up" },
+            },
+    },
+    {
         LLM_ARCH_UNKNOWN,
         {
             { LLM_TENSOR_TOKEN_EMBD,      "token_embd" },
@@ -631,13 +649,13 @@ enum tensor_offloading_levels {
 
 tensor_offloading_levels get_offloading_level(llm_tensor tensor) {
     switch (tensor) {
-        case LLM_TENSOR_TOKEN_EMBD: case LLM_TENSOR_TOKEN_EMBD_NORM: case LLM_TENSOR_POS_EMBD: 
+        case LLM_TENSOR_TOKEN_EMBD: case LLM_TENSOR_TOKEN_EMBD_NORM: case LLM_TENSOR_POS_EMBD:
         case LLM_TENSOR_ROPE_FREQS:
             return TENSOR_NO_OFFLOAD;
         case LLM_TENSOR_OUTPUT: case LLM_TENSOR_OUTPUT_NORM:
             return TENSOR_OFFLOAD_OUTPUT;
-        case LLM_TENSOR_ATTN_Q: case LLM_TENSOR_ATTN_K: case LLM_TENSOR_ATTN_V: 
-        case LLM_TENSOR_ATTN_QKV: case LLM_TENSOR_ATTN_OUT: case LLM_TENSOR_ATTN_NORM: 
+        case LLM_TENSOR_ATTN_Q: case LLM_TENSOR_ATTN_K: case LLM_TENSOR_ATTN_V:
+        case LLM_TENSOR_ATTN_QKV: case LLM_TENSOR_ATTN_OUT: case LLM_TENSOR_ATTN_NORM:
         case LLM_TENSOR_ATTN_NORM_2: case LLM_TENSOR_ATTN_ROT_EMBD:
         case LLM_TENSOR_ATTN_Q_NORM: case LLM_TENSOR_ATTN_K_NORM:
             return TENSOR_OFFLOAD_ATTN;
@@ -1242,7 +1260,7 @@ struct llama_hparams {
 
     float f_clamp_kqv;
     float f_max_alibi_bias;
-    
+
     // sparse predictor threshold if sparse inference is enabled
     float sparse_pred_threshold = (float)atof(getenv("LLAMA_SPARSE_PRED_THRESHOLD") ? getenv("LLAMA_SPARSE_PRED_THRESHOLD") : "0.0");
 
@@ -1333,7 +1351,7 @@ struct llama_layer {
     struct ggml_tensor * ffn_down; // w2
     struct ggml_tensor * ffn_up;   // w3
     struct ggml_tensor * ffn_down_t;
-    
+
     // ff sliced on gpu
     struct ggml_tensor * ffn_gate_gpu;
     struct ggml_tensor * ffn_down_gpu;
@@ -2328,10 +2346,12 @@ static void llm_load_hparams(
     switch (model.arch) {
         case LLM_ARCH_LLAMA:
         case LLM_ARCH_BAMBOO:
+        case LLM_ARCH_QWEN2:
             {
                 GGUF_GET_KEY(ctx, hparams.f_norm_rms_eps, gguf_get_val_f32, GGUF_TYPE_FLOAT32, true, kv(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS));
 
                 switch (hparams.n_layer) {
+                    case 24: model.type = e_model::MODEL_1B; break;
                     case 26: model.type = e_model::MODEL_3B; break;
                     case 32: model.type = e_model::MODEL_7B; break;
                     case 40: model.type = e_model::MODEL_13B; break;
@@ -2920,10 +2940,10 @@ struct llama_augmentation_model_loader {
             layer.ffn_gate_gpu = create_striped_mat_to_gpu(layer.ffn_gate, gpu_bucket);
             offloaded_bytes += ggml_nbytes(layer.ffn_gate_gpu);
         }
-        
+
         layer.ffn_up_gpu = create_striped_mat_to_gpu(layer.ffn_up, gpu_bucket);
         offloaded_bytes += ggml_nbytes(layer.ffn_up_gpu);
-        
+
         layer.ffn_down_gpu = create_striped_mat_to_gpu(layer.ffn_down_t, gpu_bucket);
         offloaded_bytes += ggml_nbytes(layer.ffn_down_gpu);
 
@@ -3014,7 +3034,7 @@ struct buffered_tensor_allocator {
         if (!ggml_cublas_loaded()) {
             return 0;
         }
-        
+
         // iterate over offloading priorities
         for (int enum_i = TENSOR_OFFLOAD_ATTN; enum_i <= TENSOR_OFFLOAD_OUTPUT; enum_i ++) {
             tensor_offloading_levels level = static_cast<tensor_offloading_levels>(enum_i);
@@ -3045,7 +3065,7 @@ struct buffered_tensor_allocator {
 
 static bool load_gpu_split_from_split_file(llama_model & model, std::string split_path, size_t vram_budget) {
     llama_gpu_split_loader loader(split_path, true);
-    return loader.check_vram_allocable(vram_budget) 
+    return loader.check_vram_allocable(vram_budget)
         && loader.load_gpu_idx_for_model(&model) == 0;
 }
 
@@ -3182,7 +3202,7 @@ static void llm_load_sparse_model_tensors(
     buffered_tensor_allocator alloc(ml, ctx, hparams);
     uint32_t current_layer = 0;
     auto create_tensor = [&alloc, &current_layer] (
-        const std::pair<std::string, llm_tensor> & tn, 
+        const std::pair<std::string, llm_tensor> & tn,
         const std::vector<int64_t> & ne) -> ggml_tensor * {
         return alloc.buffered_alloc(tn.first, tn.second, ne, current_layer);
     };
@@ -3198,6 +3218,7 @@ static void llm_load_sparse_model_tensors(
             case LLM_ARCH_LLAMA:
             case LLM_ARCH_REFACT:
             case LLM_ARCH_BAMBOO:
+            case LLM_ARCH_QWEN2:
                 {
                     model.tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab});
 
@@ -3415,6 +3436,7 @@ static void llm_load_tensors(
             case LLM_ARCH_LLAMA:
             case LLM_ARCH_REFACT:
             case LLM_ARCH_BAMBOO:
+            case LLM_ARCH_QWEN2:
                 {
                     model.tok_embd = ml.create_tensor(ctx, tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, GGML_BACKEND_CPU);
 
@@ -4258,7 +4280,7 @@ static std::pair<ggml_tensor*, ggml_tensor*> llm_build_kv_store(
     ggml_tensor * v_cpy = ggml_cpy(ctx, v_cur_t, v_cache_view);
     //ggml_build_forward_expand(graph, ggml_cpy(ctx, k_cur,   k_cache_view));
     //ggml_build_forward_expand(graph, ggml_cpy(ctx, v_cur_t, v_cache_view));
-    
+
     return {k_cpy, v_cpy};
 }
 
@@ -4403,14 +4425,14 @@ static struct ggml_tensor * llm_build_sparse_mul_mat(
     ggml_tensor * out = nullptr;
 
 #ifdef GGML_USE_HIPBLAS
-// WARNING: THIS IS A HACK! 
+// WARNING: THIS IS A HACK!
 // if up_gpu->data is null
 // inference fails when model exceeds 40B on rocm device
 // so we just let up_gpu->data point to itself
-    
+
     up_gpu->data = up_gpu;
 
-#endif 
+#endif
 
 #ifdef GGML_USE_CUBLAS
     // Full offloading fast path
@@ -4456,14 +4478,14 @@ static struct ggml_tensor * llm_build_sparse_axpy(
     ggml_tensor * out = nullptr;
 
 #ifdef GGML_USE_HIPBLAS
-// WARNING: THIS IS A HACK! 
+// WARNING: THIS IS A HACK!
 // if wt_gpu->data is null
 // inference fails when model exceeds 40B on rocm device
 // so we just let wt_gpu->data point to itself
-    
+
     wt_gpu->data = wt_gpu;
 
-#endif 
+#endif
 
 #ifdef GGML_USE_CUBLAS
     // Full offloading fast path
@@ -4779,7 +4801,7 @@ struct llm_build_context {
             /*.mem_buffer =*/ buf_compute.data,
             /*.no_alloc   =*/ true,
         };
-        
+
 
         ctx0 = ggml_init(params);
     }
@@ -4890,7 +4912,7 @@ struct llm_build_context {
                         model.layers[il].mlp_pre_w1,
                         model.layers[il].mlp_pre_w2,
                         ffn_inp, // as for now, llama's pred use the same input as the ffn
-                        model.layers[il].gpu_idx, 
+                        model.layers[il].gpu_idx,
                         model.layers[il].gpu_bucket, model.layers[il].ffn_gate_gpu, model.layers[il].ffn_down_gpu, model.layers[il].ffn_up_gpu,
                         LLM_FFN_RELU, gate_type, model.layers[il].gpu_offload_ratio, cbs);
                 } else {
@@ -5151,8 +5173,8 @@ struct llm_build_context {
                     model.layers[il].mlp_pre_w1,
                     model.layers[il].mlp_pre_w2,
                     inpL, // Falcon uses the layer's input as the pred input
-                    model.layers[il].gpu_idx, 
-                    model.layers[il].gpu_bucket, 
+                    model.layers[il].gpu_idx,
+                    model.layers[il].gpu_bucket,
                     model.layers[il].ffn_gate_gpu, model.layers[il].ffn_down_gpu, model.layers[il].ffn_up_gpu,
                     LLM_FFN_RELU, LLM_FFN_SEQ, model.layers[il].gpu_offload_ratio, cbs);
             } else {
@@ -6405,6 +6427,7 @@ static struct ggml_cgraph * llama_build_graph(
     switch (model.arch) {
         case LLM_ARCH_LLAMA:
         case LLM_ARCH_BAMBOO:
+        case LLM_ARCH_QWEN2:
             {
                 result = llm.build_llama_variants();
             } break;
@@ -6617,7 +6640,8 @@ static int llama_decode_internal(
         model.arch == LLM_ARCH_MPT        ||
         model.arch == LLM_ARCH_STARCODER  ||
         model.arch == LLM_ARCH_STABLELM   ||
-        model.arch == LLM_ARCH_BAMBOO;
+        model.arch == LLM_ARCH_BAMBOO     ||
+        model.arch == LLM_ARCH_QWEN2;
 
     // const bool fully_offloaded = model.n_gpu_layers >= (int) hparams.n_layer + 3;
     // if (ggml_cpu_has_cublas() && full_offload_supported && fully_offloaded) {
@@ -9846,7 +9870,7 @@ int llama_model_apply_lora_from_file(const struct llama_model * model, const cha
 }
 
 size_t llama_model_offload_ffn_split(struct llama_model * model) {
-    llama_augmentation_model_loader * aug_ml = new llama_augmentation_model_loader(model);    
+    llama_augmentation_model_loader * aug_ml = new llama_augmentation_model_loader(model);
     size_t offloaded_bytes = aug_ml->offload_ffn_split(model);
     return offloaded_bytes;
 }

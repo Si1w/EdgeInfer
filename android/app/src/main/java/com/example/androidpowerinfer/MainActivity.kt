@@ -12,11 +12,7 @@ import android.text.format.Formatter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,19 +22,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import com.example.androidpowerinfer.ui.theme.LlamaAndroidTheme
 import java.io.File
 
+/**
+ * This Activity sets up the UI, logs memory stats, and initializes downloads and models.
+ * It uses lazy-initialized system services and a MainViewModel to handle model loading and interaction.
+ */
 class MainActivity(
     activityManager: ActivityManager? = null,
     downloadManager: DownloadManager? = null,
     clipboardManager: ClipboardManager? = null,
-): ComponentActivity() {
-    private val tag: String? = this::class.simpleName
+) : ComponentActivity() {
 
     private val activityManager by lazy { activityManager ?: getSystemService<ActivityManager>()!! }
     private val downloadManager by lazy { downloadManager ?: getSystemService<DownloadManager>()!! }
@@ -46,67 +45,66 @@ class MainActivity(
 
     private val viewModel: MainViewModel by viewModels()
 
-    // Get a MemoryInfo object for the device's current memory status.
-    private fun availableMemory(): ActivityManager.MemoryInfo {
-        return ActivityManager.MemoryInfo().also { memoryInfo ->
-            activityManager.getMemoryInfo(memoryInfo)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Enable strict mode for detecting leaked closable objects.
         StrictMode.setVmPolicy(
             VmPolicy.Builder(StrictMode.getVmPolicy())
                 .detectLeakedClosableObjects()
                 .build()
         )
 
-        val free = Formatter.formatFileSize(this, availableMemory().availMem)
-        val total = Formatter.formatFileSize(this, availableMemory().totalMem)
-
-        viewModel.log("Current memory: $free / $total")
-        viewModel.log("Downloads directory: ${getExternalFilesDir(null)}")
-
-        val extFilesDir = getExternalFilesDir(null)
+        logMemoryInfo()
+        logDownloadDirectory()
 
         val models = listOf(
             Downloadable(
-                "Phi-2 7B (Q4_0, 1.6 GiB)",
-                Uri.parse("https://huggingface.co/ggml-org/models/resolve/main/phi-2/ggml-model-q4_0.gguf?download=true"),
-                File(extFilesDir, "phi-2-q4_0.gguf"),
-            ),
-            Downloadable(
-                "TinyLlama 1.1B (f16, 2.2 GiB)",
-                Uri.parse("https://huggingface.co/ggml-org/models/resolve/main/tinyllama-1.1b/ggml-model-f16.gguf?download=true"),
-                File(extFilesDir, "tinyllama-1.1-f16.gguf"),
-            ),
-            Downloadable(
-                "Phi 2 DPO (Q3_K_M, 1.48 GiB)",
-                Uri.parse("https://huggingface.co/TheBloke/phi-2-dpo-GGUF/resolve/main/phi-2-dpo.Q3_K_M.gguf?download=true"),
-                File(extFilesDir, "phi-2-dpo.Q3_K_M.gguf")
-            ),
+                name = "Bamboo 7B (Q4)",
+                Uri.parse(
+                    "https://huggingface.co/PowerInfer/Bamboo-base-v0.1-gguf/" +
+                        "resolve/main/bamboo-7b-v0.1.Q4_0.powerinfer.gguf?download=true"
+                ),
+                File(getExternalFilesDir(null), "bamboo-7b-v0.1.Q4_0.powerinfer.gguf")
+            )
         )
 
         setContent {
             LlamaAndroidTheme {
-                // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainCompose(
-                        viewModel,
-                        clipboardManager,
-                        downloadManager,
-                        models,
+                        viewModel = viewModel,
+                        clipboard = clipboardManager,
+                        dm = downloadManager,
+                        models = models,
                     )
                 }
-
             }
         }
     }
 
+    /**
+     * Logs the current device memory information using the ViewModel.
+     */
+    private fun logMemoryInfo() {
+        val memoryInfo = ActivityManager.MemoryInfo().also {
+            activityManager.getMemoryInfo(it)
+        }
+        val free = Formatter.formatFileSize(this, memoryInfo.availMem)
+        val total = Formatter.formatFileSize(this, memoryInfo.totalMem)
+        viewModel.log("Current memory: $free / $total")
+    }
+
+    /**
+     * Logs the directory where downloads will be stored.
+     */
+    private fun logDownloadDirectory() {
+        val extFilesDir = getExternalFilesDir(null)
+        viewModel.log("Downloads directory: $extFilesDir")
+    }
 }
 
 @Composable
@@ -116,42 +114,98 @@ fun MainCompose(
     dm: DownloadManager,
     models: List<Downloadable>
 ) {
-    Column {
+    // true : chat, false: Download
+    var isChat by remember { mutableStateOf(true) }
+
+    Column(Modifier.fillMaxSize()) {
+        Button(
+            onClick = { isChat = !isChat },
+            modifier = Modifier.padding(8.dp)
+        ) {
+            Text(if (isChat) "Switch to Downloads" else "Switch to Chat")
+        }
+
+        if (isChat) {
+            ChatScreen(viewModel, clipboard)
+        } else {
+            DownloadScreen(viewModel, dm, models)
+        }
+    }
+}
+
+@Composable
+fun ChatScreen(viewModel: MainViewModel, clipboard: ClipboardManager) {
+    Column(Modifier.fillMaxSize()) {
         val scrollState = rememberLazyListState()
 
+        // Messages display
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(state = scrollState) {
                 items(viewModel.messages) {
                     Text(
-                        it,
+                        text = it,
                         style = MaterialTheme.typography.bodyLarge.copy(color = LocalContentColor.current),
                         modifier = Modifier.padding(16.dp)
                     )
                 }
             }
         }
+
+        // Message input and actions
         OutlinedTextField(
             value = viewModel.message,
-            onValueChange = { viewModel.updateMessage(it) },
+            onValueChange = viewModel::updateMessage,
             label = { Text("Message") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
         )
-        Row {
-            Button({ viewModel.send() }) { Text("Send") }
-            Button({ viewModel.bench(8, 4, 1) }) { Text("Bench") }
-            Button({ viewModel.clear() }) { Text("Clear") }
-            Button({
+
+        Row(Modifier.padding(16.dp)) {
+            Button(onClick = viewModel::send, modifier = Modifier.padding(end = 8.dp)) {
+                Text("Send")
+            }
+            Button(onClick = viewModel::clear, modifier = Modifier.padding(end = 8.dp)) {
+                Text("Clear")
+            }
+            Button(onClick = {
                 viewModel.messages.joinToString("\n").let {
-                    clipboard.setPrimaryClip(ClipData.newPlainText("", it))
+                    clipboard.setPrimaryClip(ClipData.newPlainText("messages", it))
                 }
-            }) { Text("Copy") }
+            }) {
+                Text("Copy")
+            }
+        }
+    }
+}
+
+@Composable
+fun DownloadScreen(
+    viewModel: MainViewModel,
+    dm: DownloadManager,
+    models: List<Downloadable>
+) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        // Instructions or title
+        Text(
+            "Download Models",
+            style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        // List of models to download
+        Column(modifier = Modifier.weight(1f)) {
+            for (model in models) {
+                Downloadable.Button(viewModel, dm, model)
+            }
         }
 
-        Column {
-//            for (model in models) {
-//                Downloadable.Button(viewModel, dm, model)
-//            }
-            Button({ viewModel.load("/data/local/tmp/powerinfer/llama-7b-relu.q4.powerinfer.gguf") }) { Text("Load local model") }
-            Button({ viewModel.unload() }) { Text("unload")}
+        // Unload model button at the bottom
+        Button(
+            onClick = { viewModel.unload() },
+            modifier = Modifier.padding(top = 16.dp)
+        ) {
+            Text("Unload Model")
         }
     }
 }

@@ -1,8 +1,8 @@
 package com.example.androidpowerinfer
 
-import com.example.androidpowerinfer.PowerinferAndroid
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -10,108 +10,136 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
-class MainViewModel(private val llamaAndroid: PowerinferAndroid = PowerinferAndroid.instance()): ViewModel() {
-    companion object {
-        @JvmStatic
-        private val NanosPerSecond = 1_000_000_000.0
-    }
+/**
+ * A ViewModel for managing the interaction with PowerinferAndroid.
+ * It maintains messages sent/received and the current input message.
+ */
+class MainViewModel(
+    private val llamaAndroid: PowerinferAndroid = PowerinferAndroid.instance()
+) : ViewModel() {
 
-    private val tag: String? = this::class.simpleName
+    private val tag = MainViewModel::class.java.simpleName
 
-    var messages by mutableStateOf(listOf("Initializing..."))
-        private set
+    // Store messages in a mutable state list for better performance and clarity
+    private val _messages = mutableStateListOf("Initializing...")
+    val messages: List<String> get() = _messages
 
     var message by mutableStateOf("")
         private set
 
+    /**
+     * Lifecycle cleanup: unloads the model when the ViewModel is cleared.
+     * Using a coroutine to ensure asynchronous completion before destruction.
+     */
     override fun onCleared() {
         super.onCleared()
-
         viewModelScope.launch {
-            try {
-                llamaAndroid.unload()
-            } catch (exc: IllegalStateException) {
-                messages += exc.message!!
-            }
+            unloadModelSilently()
         }
     }
 
+    /**
+     * Send the current message to the model for processing.
+     * Once sent, clears the message input and updates the message list.
+     */
     fun send() {
-        val text = message
+        val textToSend = message
         message = ""
 
-        // Add to messages console.
-        messages += text
-        messages += ""
+        appendMessage(textToSend)
+        appendMessage("") // placeholder to collect model output progressively
 
         viewModelScope.launch {
-            llamaAndroid.send(text)
-                .catch {
-                    Log.e(tag, "send() failed", it)
-                    messages += it.message!!
+            llamaAndroid.send(textToSend)
+                .catch { exc ->
+                    Log.e(tag, "send() failed", exc)
+                    appendMessage(exc.message.orEmpty())
                 }
-                .collect { messages = messages.dropLast(1) + (messages.last() + it) }
+                .collect { token ->
+                    // Update the last message appended with the new token
+                    // This line replaces the last empty message with tokenized output
+                    updateLastMessage { it + token }
+                }
         }
     }
 
-    fun bench(pp: Int, tg: Int, pl: Int, nr: Int = 1) {
-        viewModelScope.launch {
-            try {
-                val start = System.nanoTime()
-                val warmupResult = llamaAndroid.bench(pp, tg, pl, nr)
-                val end = System.nanoTime()
-
-                messages += warmupResult
-
-                val warmup = (end - start).toDouble() / NanosPerSecond
-                messages += "Warm up time: $warmup seconds, please wait..."
-
-                if (warmup > 5.0) {
-                    messages += "Warm up took too long, aborting benchmark"
-                    return@launch
-                }
-
-                messages += llamaAndroid.bench(512, 128, 1, 3)
-            } catch (exc: IllegalStateException) {
-                Log.e(tag, "bench() failed", exc)
-                messages += exc.message!!
-            }
-        }
-    }
-
+    /**
+     * Loads the model from the given path.
+     */
     fun load(pathToModel: String) {
         viewModelScope.launch {
             try {
                 llamaAndroid.load(pathToModel)
-                messages += "Loaded $pathToModel"
+                appendMessage("Loaded $pathToModel")
             } catch (exc: IllegalStateException) {
                 Log.e(tag, "load() failed", exc)
-                messages += exc.message!!
+                appendMessage(exc.message.orEmpty())
             }
         }
     }
 
+    /**
+     * Updates the current input message.
+     */
     fun updateMessage(newMessage: String) {
         message = newMessage
     }
 
+    /**
+     * Clears the message list.
+     */
     fun clear() {
-        messages = listOf()
+        _messages.clear()
     }
 
+    /**
+     * Appends a log message to the message list.
+     */
     fun log(message: String) {
-        messages += message
+        appendMessage(message)
     }
 
+    /**
+     * Unloads the model and frees associated resources.
+     */
     fun unload() {
         viewModelScope.launch {
             try {
                 llamaAndroid.unload()
-                messages += "unload model and free the source"
+                appendMessage("Model unloaded and resources freed")
             } catch (exc: IllegalStateException) {
                 Log.e(tag, "unload() failed", exc)
-                messages += exc.message!!
+                appendMessage(exc.message.orEmpty())
             }
+        }
+    }
+
+    /**
+     * Appends a new message to the message list.
+     */
+    private fun appendMessage(newMessage: String) {
+        _messages.add(newMessage)
+    }
+
+    /**
+     * Updates the last appended message (e.g., replacing a placeholder with actual output).
+     * Safely modifies the last element if present.
+     */
+    private fun updateLastMessage(transform: (String) -> String) {
+        if (_messages.isNotEmpty()) {
+            val lastIndex = _messages.lastIndex
+            _messages[lastIndex] = transform(_messages[lastIndex])
+        }
+    }
+
+    /**
+     * Attempts to unload the model silently, logging any exceptions.
+     */
+    private suspend fun unloadModelSilently() {
+        try {
+            llamaAndroid.unload()
+        } catch (exc: IllegalStateException) {
+            appendMessage(exc.message.orEmpty())
         }
     }
 }
