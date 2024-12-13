@@ -1,29 +1,33 @@
 package com.example.androidpowerinfer
 
-import android.app.ActivityManager
+import com.example.androidpowerinfer.ui.theme.*
 import android.app.DownloadManager
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.StrictMode
 import android.os.StrictMode.VmPolicy
-import android.text.format.Formatter
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import com.example.androidpowerinfer.ui.theme.LlamaAndroidTheme
@@ -34,12 +38,12 @@ import java.io.File
  * It uses lazy-initialized system services and a MainViewModel to handle model loading and interaction.
  */
 class MainActivity(
-    activityManager: ActivityManager? = null,
+//    activityManager: ActivityManager? = null,
     downloadManager: DownloadManager? = null,
     clipboardManager: ClipboardManager? = null,
 ) : ComponentActivity() {
 
-    private val activityManager by lazy { activityManager ?: getSystemService<ActivityManager>()!! }
+//    private val activityManager by lazy { activityManager ?: getSystemService<ActivityManager>()!! }
     private val downloadManager by lazy { downloadManager ?: getSystemService<DownloadManager>()!! }
     private val clipboardManager by lazy { clipboardManager ?: getSystemService<ClipboardManager>()!! }
 
@@ -55,8 +59,8 @@ class MainActivity(
                 .build()
         )
 
-        logMemoryInfo()
-        logDownloadDirectory()
+//        logMemoryInfo()
+//        logDownloadDirectory()
 
         val models = listOf(
             Downloadable(
@@ -66,7 +70,7 @@ class MainActivity(
                         "resolve/main/bamboo-7b-v0.1.Q4_0.powerinfer.gguf?download=true"
                 ),
                 File(getExternalFilesDir(null), "bamboo-7b-v0.1.Q4_0.powerinfer.gguf")
-            )
+            ),
         )
 
         setContent {
@@ -89,22 +93,22 @@ class MainActivity(
     /**
      * Logs the current device memory information using the ViewModel.
      */
-    private fun logMemoryInfo() {
-        val memoryInfo = ActivityManager.MemoryInfo().also {
-            activityManager.getMemoryInfo(it)
-        }
-        val free = Formatter.formatFileSize(this, memoryInfo.availMem)
-        val total = Formatter.formatFileSize(this, memoryInfo.totalMem)
-        viewModel.log("Current memory: $free / $total")
-    }
-
-    /**
-     * Logs the directory where downloads will be stored.
-     */
-    private fun logDownloadDirectory() {
-        val extFilesDir = getExternalFilesDir(null)
-        viewModel.log("Downloads directory: $extFilesDir")
-    }
+//    private fun logMemoryInfo() {
+//        val memoryInfo = ActivityManager.MemoryInfo().also {
+//            activityManager.getMemoryInfo(it)
+//        }
+//        val free = Formatter.formatFileSize(this, memoryInfo.availMem)
+//        val total = Formatter.formatFileSize(this, memoryInfo.totalMem)
+//        viewModel.log("Current memory: $free / $total")
+//    }
+//
+//    /**
+//     * Logs the directory where downloads will be stored.
+//     */
+//    private fun logDownloadDirectory() {
+//        val extFilesDir = getExternalFilesDir(null)
+//        viewModel.log("Downloads directory: $extFilesDir")
+//    }
 }
 
 @Composable
@@ -115,20 +119,34 @@ fun MainCompose(
     models: List<Downloadable>
 ) {
     // true : chat, false: Download
-    var isChat by remember { mutableStateOf(true) }
+    var isChat by remember { mutableStateOf(false) }
+    val onModelLoaded: () -> Unit = { isChat = true }
 
-    Column(Modifier.fillMaxSize()) {
-        Button(
-            onClick = { isChat = !isChat },
-            modifier = Modifier.padding(8.dp)
-        ) {
-            Text(if (isChat) "Switch to Downloads" else "Switch to Chat")
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = isChat,
+                    onClick = { isChat = true },
+                    icon = {},
+                    label = { Text("Chat") }
+                )
+
+                NavigationBarItem(
+                    selected = !isChat,
+                    onClick = { isChat = false },
+                    icon = {},
+                    label = { Text("Models") }
+                )
+            }
         }
-
-        if (isChat) {
-            ChatScreen(viewModel, clipboard)
-        } else {
-            DownloadScreen(viewModel, dm, models)
+    ) { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
+            if (isChat) {
+                ChatScreen(viewModel, clipboard)
+            } else {
+                DownloadScreen(viewModel, dm, models, onModelLoaded)
+            }
         }
     }
 }
@@ -138,44 +156,91 @@ fun ChatScreen(viewModel: MainViewModel, clipboard: ClipboardManager) {
     Column(Modifier.fillMaxSize()) {
         val scrollState = rememberLazyListState()
 
-        // Messages display
         Box(modifier = Modifier.weight(1f)) {
-            LazyColumn(state = scrollState) {
-                items(viewModel.messages) {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodyLarge.copy(color = LocalContentColor.current),
-                        modifier = Modifier.padding(16.dp)
-                    )
+            LazyColumn(state = scrollState, reverseLayout = false) {
+                items(viewModel.messages) { message ->
+                    val isUser = message.sender == "User"
+                    val bubbleShape = RoundedCornerShape(BubbleCornerShape)
+
+                    val backgroundColor = when (message.sender) {
+                        "User" -> UserBubbleColor
+                        "Assistant" -> AssistantBubbleColor
+                        else -> OtherBubbleColor
+                    }
+
+                    val alignment = if (isUser) Arrangement.End else Arrangement.Start
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = alignment
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .shadow(elevation = 2.dp, shape = bubbleShape)
+                                .background(backgroundColor, shape = bubbleShape)
+                                .padding(8.dp)
+                                .widthIn(max = 300.dp)
+                        ) {
+
+                            if (!isUser) {
+                                Text(
+                                    text = message.sender,
+                                    style = MaterialTheme.typography.senderTextStyle,
+                                    modifier = Modifier.padding(bottom = 2.dp)
+                                )
+                            }
+
+                            Text(
+                                text = message.content,
+                                style = MaterialTheme.typography.messageTextStyle
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Message input and actions
-        OutlinedTextField(
-            value = viewModel.message,
-            onValueChange = viewModel::updateMessage,
-            label = { Text("Message") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-        )
+        Row(
+            Modifier
+                .padding(horizontal = 16.dp, vertical = 16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = viewModel.message,
+                onValueChange = viewModel::updateMessage,
+                label = { Text("Message") },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 10.dp)
+            )
 
-        Row(Modifier.padding(16.dp)) {
-            Button(onClick = viewModel::send, modifier = Modifier.padding(end = 8.dp)) {
-                Text("Send")
-            }
-            Button(onClick = viewModel::clear, modifier = Modifier.padding(end = 8.dp)) {
-                Text("Clear")
-            }
-            Button(onClick = {
-                viewModel.messages.joinToString("\n").let {
-                    clipboard.setPrimaryClip(ClipData.newPlainText("messages", it))
-                }
-            }) {
-                Text("Copy")
+            Button(
+                onClick = viewModel::send,
+                modifier = Modifier.padding(2.dp)
+            ) {
+                Text(">")
             }
         }
+
+//        Row(Modifier.padding(BubbleCornerShape)) {
+//            Button(onClick = viewModel::send, modifier = Modifier.padding(end = SmallBubbleCornerShape)) {
+//                Text("Send")
+//            }
+//            Button(onClick = viewModel::clear, modifier = Modifier.padding(end = SmallBubbleCornerShape)) {
+//                Text("Clear")
+//            }
+//            Button(onClick = {
+//                val copiedText = viewModel.messages.joinToString("\n") {
+//                    "${it.sender}: ${it.content}"
+//                }
+//                clipboard.setPrimaryClip(ClipData.newPlainText("messages", copiedText))
+//            }) {
+//                Text("Copy")
+//            }
+//        }
     }
 }
 
@@ -183,12 +248,13 @@ fun ChatScreen(viewModel: MainViewModel, clipboard: ClipboardManager) {
 fun DownloadScreen(
     viewModel: MainViewModel,
     dm: DownloadManager,
-    models: List<Downloadable>
+    models: List<Downloadable>,
+    onModelLoaded: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         // Instructions or title
         Text(
-            "Download Models",
+            "Download Model Lists",
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(bottom = 16.dp)
         )
@@ -196,7 +262,7 @@ fun DownloadScreen(
         // List of models to download
         Column(modifier = Modifier.weight(1f)) {
             for (model in models) {
-                Downloadable.Button(viewModel, dm, model)
+                Downloadable.Button(viewModel, dm, model, onModelLoaded = onModelLoaded)
             }
         }
 

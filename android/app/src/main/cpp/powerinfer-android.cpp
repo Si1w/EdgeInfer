@@ -90,8 +90,10 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_new_1params(JNIEnv* env, jo
     g_params->n_threads_batch = n_threads;
 
     // TODO: add prompt
-    const char * model_prompt = R"""(You are a helpful and honest assistant.)""";
-    g_params->prompt=model_prompt;
+    const char * prefix = R"""(User: )""";
+    const char * suffix = R"""(Assistance: )""";
+    g_params->input_prefix = prefix;
+    g_params->input_suffix = suffix;
 
     // model
     g_params->model = env->GetStringUTFChars(filename, 0);
@@ -245,7 +247,7 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
     const auto batch = reinterpret_cast<llama_batch *>(batch_pointer);
     const auto params = reinterpret_cast<gpt_params *>(jparams);
 
-    const auto tokens_list = llama_tokenize(context, params->prompt + text, 1);
+    const auto tokens_list = llama_tokenize(context, params->input_prefix + text + '\n' + params->input_suffix, 1);
 
     auto n_ctx = llama_n_ctx(context);
     auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
@@ -303,7 +305,7 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1loop(
     llama_sampling_accept(sampler, context, new_token_id, true);
 
     const auto n_cur = env->CallIntMethod(intvar_ncur, la_int_var_value);
-    if (new_token_id == llama_token_eos(model) || n_len == n_cur) {
+    if (llama_sampling_last(sampler) == llama_token_eos(model) || n_len == n_cur) {
         batch->n_tokens = -1;
         LOGi("This is the last token");
     }
