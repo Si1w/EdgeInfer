@@ -246,10 +246,9 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
     const auto context = reinterpret_cast<llama_context *>(context_pointer);
     const auto batch = reinterpret_cast<llama_batch *>(batch_pointer);
     const auto params = reinterpret_cast<gpt_params *>(jparams);
-    // const auto input_text = params->prompt + '\n' + params->input_prefix + text + '\n' + params->input_suffix;
     const auto input_text = params->prompt + '\n' + text;
-
     const auto tokens_list = llama_tokenize(context, input_text, 1);
+    params->prompt = "";
 
     auto n_ctx = llama_n_ctx(context);
     auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
@@ -279,7 +278,6 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
     }
 
     env->ReleaseStringUTFChars(jtext, text);
-
     return batch->n_tokens;
 }
 
@@ -348,5 +346,5 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_pdf_1prompt(JNIEnv *env, jo
     const auto params = reinterpret_cast<gpt_params *>(jparams);
     const auto pdf_string = env->GetStringUTFChars(pdf_text, 0);
     LOGi("%s", pdf_string);
-    params->prompt = pdf_string;
+    params->prompt = std::string("After reading ") + '\n' + pdf_string;
 }
