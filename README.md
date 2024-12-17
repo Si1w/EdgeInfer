@@ -22,11 +22,11 @@ git clone https://github.com/Si1w/EdgeInfer.git
 
 OR 
 
-1. Download the APK file from the release page.
+1. Download the APK file from the [release](https://github.com/Si1w/EdgeInfer/releases) page.
 
 ### ADD YOUR OWN MODEL
 
-1. Open the file `./android/app/src/main/java/com/example/edgeinfer/MainActivity.java`.
+1. Open the file [`./android/app/src/main/java/com/example/edgeinfer/MainActivity.java`](https://github.com/Si1w/EdgeInfer/blob/main/android/app/src/main/java/com/example/androidpowerinfer/MainActivity.kt).
 
 2. Find the following code:
 
