@@ -55,6 +55,7 @@ class PowerinferAndroid {
     private external fun system_info(): String
 
     private external fun pdf_prompt(g_params: Long, pdftext: String)
+    private external fun free_pdf_prompt(g_params: Long)
 
     private external fun completion_init(
         context: Long,
@@ -105,6 +106,7 @@ class PowerinferAndroid {
         when (val state = threadLocalState.get()) {
             is State.Loaded -> {
                 val ncur = IntVar(completion_init(state.context, state.batch, message, nlen, state.params))
+                free_pdf_prompt(state.params);
                 Log.i(tag, "The completion has been initialized")
                 while (ncur.value <= nlen) {
                     val str = completion_loop(state.context, state.batch, state.sampling, nlen, ncur)
@@ -135,6 +137,22 @@ class PowerinferAndroid {
                     Log.w(tag, "Attempted to upload PDF prompt without a loaded model.")
                     throw IllegalStateException("Model is not loaded. Please load the model before uploading a PDF prompt.")
                 }
+            }
+        }
+    }
+
+    suspend fun unload_pdf_prompt() {
+        withContext(runLoop) {
+            when (val state = threadLocalState.get()) {
+                is State.Loaded -> {
+                    try {
+                        free_pdf_prompt(state.params);
+                        Log.i(tag, "unload pdf prompt successfully")
+                    } catch (e: Exception) {
+                        Log.e(tag, "Failed to unload pdf prompt")
+                    }
+                }
+                else -> {}
             }
         }
     }

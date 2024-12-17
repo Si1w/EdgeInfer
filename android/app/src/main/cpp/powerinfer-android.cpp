@@ -248,7 +248,6 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
     const auto params = reinterpret_cast<gpt_params *>(jparams);
     const auto input_text = params->prompt + '\n' + text;
     const auto tokens_list = llama_tokenize(context, input_text, 1);
-    params->prompt = "";
 
     auto n_ctx = llama_n_ctx(context);
     auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
@@ -347,4 +346,11 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_pdf_1prompt(JNIEnv *env, jo
     const auto pdf_string = env->GetStringUTFChars(pdf_text, 0);
     LOGi("%s", pdf_string);
     params->prompt = std::string("After reading ") + '\n' + pdf_string;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_androidpowerinfer_PowerinferAndroid_free_1pdf_1prompt(JNIEnv *env, jobject ,jlong jparams) {
+    const auto params = reinterpret_cast<gpt_params *>(jparams);
+    params->prompt = "";
 }

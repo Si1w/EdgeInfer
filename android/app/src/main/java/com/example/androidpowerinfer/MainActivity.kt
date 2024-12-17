@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -215,6 +216,7 @@ fun ChatScreen(viewModel: MainViewModel) {
     val scrollState = rememberLazyListState()
     val messages by remember { derivedStateOf { viewModel.messages } }
     val isParsing by remember { derivedStateOf { viewModel.isParsing } }
+    val isUploaded by remember { derivedStateOf { viewModel.isUploaded } }
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -292,12 +294,18 @@ fun ChatScreen(viewModel: MainViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = { pdfPickerLauncher.launch("application/pdf") },
+                onClick = {
+                    if (!isUploaded) {
+                        pdfPickerLauncher.launch("application/pdf")
+                    } else {
+                        viewModel.unloadPDF();
+                    }
+                          },
                 modifier = Modifier.size(35.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add PDF",
+                    imageVector = if(!isUploaded) {Icons.Default.Add} else {Icons.Default.Clear},
+                    contentDescription = "Add or Unload PDF",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }

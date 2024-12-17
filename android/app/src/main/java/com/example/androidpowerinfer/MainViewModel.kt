@@ -33,6 +33,9 @@ class MainViewModel(
     var isExporting by mutableStateOf(false)
         private set
 
+    var isUploaded by mutableStateOf(false)
+        private set
+
     override fun onCleared() {
         super.onCleared()
         viewModelScope.launch {
@@ -104,6 +107,7 @@ class MainViewModel(
             if (extractedText.isNotEmpty()) {
                 try {
                     llamaAndroid.upload_pdf_prompt(extractedText)
+                    isUploaded = true
                     appendMessage(ChatMessage("System", "PDF Prompt has been uploaded"))
                 } catch (exc: IllegalStateException) {
                     Log.e(tag, "upload_pdf_prompt() failed", exc)
@@ -112,6 +116,19 @@ class MainViewModel(
             } else {
                 appendMessage(ChatMessage("Error", "Failed to extract text from PDF."))
             }
+        }
+    }
+
+    fun unloadPDF() {
+        viewModelScope.launch {
+            try {
+                llamaAndroid.unload_pdf_prompt()
+                isUploaded = false
+                appendMessage(ChatMessage("System", "unload PDF Prompt"))
+            } catch (e: Exception) {
+                Log.e(tag, "unload_pdf_prompt() failed", e)
+            }
+
         }
     }
 
