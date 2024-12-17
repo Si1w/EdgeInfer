@@ -246,8 +246,10 @@ Java_com_example_androidpowerinfer_PowerinferAndroid_completion_1init(
     const auto context = reinterpret_cast<llama_context *>(context_pointer);
     const auto batch = reinterpret_cast<llama_batch *>(batch_pointer);
     const auto params = reinterpret_cast<gpt_params *>(jparams);
+    // const auto input_text = params->prompt + '\n' + params->input_prefix + text + '\n' + params->input_suffix;
+    const auto input_text = params->prompt + '\n' + text;
 
-    const auto tokens_list = llama_tokenize(context, params->input_prefix + text + '\n' + params->input_suffix, 1);
+    const auto tokens_list = llama_tokenize(context, input_text, 1);
 
     auto n_ctx = llama_n_ctx(context);
     auto n_kv_req = tokens_list.size() + (n_len - tokens_list.size());
@@ -338,4 +340,13 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_androidpowerinfer_PowerinferAndroid_kv_1cache_1clear(JNIEnv *, jobject, jlong context) {
     llama_kv_cache_clear(reinterpret_cast<llama_context*>(context));
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_androidpowerinfer_PowerinferAndroid_pdf_1prompt(JNIEnv *env, jobject, jlong jparams, jstring pdf_text) {
+    const auto params = reinterpret_cast<gpt_params *>(jparams);
+    const auto pdf_string = env->GetStringUTFChars(pdf_text, 0);
+    LOGi("%s", pdf_string);
+    params->prompt = pdf_string;
 }

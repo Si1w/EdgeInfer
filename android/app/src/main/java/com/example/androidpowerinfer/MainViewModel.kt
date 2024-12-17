@@ -1,5 +1,7 @@
 package com.example.androidpowerinfer
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -16,12 +18,19 @@ data class ChatMessage(
 )
 
 class MainViewModel(
-    private val llamaAndroid: PowerinferAndroid = PowerinferAndroid.instance()
+    private val llamaAndroid: PowerinferAndroid = PowerinferAndroid.instance(),
+    private val parsePDF: ParsePDF = ParsePDF.instance,
 ) : ViewModel() {
     private val tag = MainViewModel::class.java.simpleName
     private val _messages = mutableStateListOf(ChatMessage("System", "Initializing..."))
     val messages: List<ChatMessage> get() = _messages
     var message by mutableStateOf("")
+        private set
+
+    var isParsing by mutableStateOf(false)
+        private set
+
+    var isExporting by mutableStateOf(false)
         private set
 
     override fun onCleared() {
@@ -88,6 +97,24 @@ class MainViewModel(
         }
     }
 
+    fun uploadPDF(context: Context, pdfUri: Uri) {
+        viewModelScope.launch {
+            val extractedText = parsePDF.parsePdfToString(context, pdfUri)
+            Log.i(tag, extractedText)
+            if (extractedText.isNotEmpty()) {
+                try {
+                    llamaAndroid.upload_pdf_prompt(extractedText)
+                    appendMessage(ChatMessage("System", "PDF Prompt has been uploaded"))
+                } catch (exc: IllegalStateException) {
+                    Log.e(tag, "upload_pdf_prompt() failed", exc)
+                    appendMessage(ChatMessage("Error", exc.message.orEmpty()))
+                }
+            } else {
+                appendMessage(ChatMessage("Error", "Failed to extract text from PDF."))
+            }
+        }
+    }
+
     private fun appendMessage(newMessage: ChatMessage) {
         _messages.add(newMessage)
     }
@@ -104,6 +131,15 @@ class MainViewModel(
             llamaAndroid.unload()
         } catch (exc: IllegalStateException) {
             appendMessage(ChatMessage("Error", exc.message.orEmpty()))
+        }
+    }
+
+    fun exportChatToPdf(context: Context) {
+        viewModelScope.launch {
+            isExporting = true
+            parsePDF.exportPDF(_messages, context)
+            isExporting = false
+            Log.i(tag, "Chat exported to PDF")
         }
     }
 }

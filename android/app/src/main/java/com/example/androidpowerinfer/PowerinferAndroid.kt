@@ -54,6 +54,8 @@ class PowerinferAndroid {
 
     private external fun system_info(): String
 
+    private external fun pdf_prompt(g_params: Long, pdftext: String)
+
     private external fun completion_init(
         context: Long,
         batch: Long,
@@ -118,11 +120,25 @@ class PowerinferAndroid {
         }
     }.flowOn(runLoop)
 
-    /**
-     * Unloads the model and frees resources.
-     *
-     * This is a no-op if there's no model loaded.
-     */
+    suspend fun upload_pdf_prompt(pdfString: String) {
+        withContext(runLoop) {
+            when (val state = threadLocalState.get()) {
+                is State.Loaded -> {
+                    try {
+                        pdf_prompt(state.params, pdfString)
+                        Log.i(tag, "PDF prompt has been successfully uploaded.")
+                    } catch (e: Exception) {
+                        Log.e(tag, "Failed to upload PDF prompt", e)
+                    }
+                }
+                else -> {
+                    Log.w(tag, "Attempted to upload PDF prompt without a loaded model.")
+                    throw IllegalStateException("Model is not loaded. Please load the model before uploading a PDF prompt.")
+                }
+            }
+        }
+    }
+
     suspend fun unload() {
         withContext(runLoop) {
             when (val state = threadLocalState.get()) {

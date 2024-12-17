@@ -1,5 +1,6 @@
 package com.example.androidpowerinfer
 
+//import android.app.ActivityManager
 import com.example.androidpowerinfer.ui.theme.*
 import android.app.DownloadManager
 import android.content.ClipboardManager
@@ -8,7 +9,9 @@ import android.os.Bundle
 import android.os.StrictMode
 import android.os.StrictMode.VmPolicy
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,7 +19,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -24,19 +35,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import com.example.androidpowerinfer.ui.theme.LlamaAndroidTheme
 import java.io.File
 
-/**
- * This Activity sets up the UI, logs memory stats, and initializes downloads and models.
- * It uses lazy-initialized system services and a MainViewModel to handle model loading and interaction.
- */
 class MainActivity(
 //    activityManager: ActivityManager? = null,
     downloadManager: DownloadManager? = null,
@@ -62,6 +72,12 @@ class MainActivity(
 //        logMemoryInfo()
 //        logDownloadDirectory()
 
+        /**
+         * List of models to available to download and use
+         * @param name: name of the model
+         * @param uri: uri of the model to download
+         * @param file: file to save the model to
+         */
         val models = listOf(
             Downloadable(
                 name = "Bamboo 7B (Q4)",
@@ -89,7 +105,7 @@ class MainActivity(
                 ) {
                     MainCompose(
                         viewModel = viewModel,
-                        clipboard = clipboardManager,
+//                        clipboard = clipboardManager,
                         dm = downloadManager,
                         models = models,
                     )
@@ -119,20 +135,54 @@ class MainActivity(
 //    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainCompose(
     viewModel: MainViewModel,
-    clipboard: ClipboardManager,
+//    clipboard: ClipboardManager,
     dm: DownloadManager,
     models: List<Downloadable>
 ) {
     // true : chat, false: Download
     var isChat by remember { mutableStateOf(false) }
     val onModelLoaded: () -> Unit = { isChat = true }
+    val context = LocalContext.current
 
+    // NavBar
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("PowerInfer") },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            viewModel.exportChatToPdf(context)
+                        },
+                        enabled = !viewModel.isExporting
+                    ) {
+                        if (viewModel.isExporting) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Export Chat"
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                )
+            )
+        },
         bottomBar = {
-            NavigationBar {
+            NavigationBar (
+                containerColor = MaterialTheme.colorScheme.onPrimary
+            ) {
                 NavigationBarItem(
                     selected = isChat,
                     onClick = { isChat = true },
@@ -151,7 +201,7 @@ fun MainCompose(
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
             if (isChat) {
-                ChatScreen(viewModel, clipboard)
+                ChatScreen(viewModel)
             } else {
                 DownloadScreen(viewModel, dm, models, onModelLoaded)
             }
@@ -160,10 +210,22 @@ fun MainCompose(
 }
 
 @Composable
-fun ChatScreen(viewModel: MainViewModel, clipboard: ClipboardManager) {
-    Column(Modifier.fillMaxSize()) {
-        val scrollState = rememberLazyListState()
+fun ChatScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
+    val scrollState = rememberLazyListState()
+    val messages by remember { derivedStateOf { viewModel.messages } }
+    val isParsing by remember { derivedStateOf { viewModel.isParsing } }
 
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri: Uri? ->
+            uri?.let {
+                viewModel.uploadPDF(context, it)
+            }
+        }
+    )
+
+    Column(Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(state = scrollState, reverseLayout = false) {
                 items(viewModel.messages) { message ->
@@ -207,48 +269,65 @@ fun ChatScreen(viewModel: MainViewModel, clipboard: ClipboardManager) {
                         }
                     }
                 }
+
+                if (isParsing) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                }
             }
         }
 
         Row(
-            Modifier
-                .padding(horizontal = 16.dp, vertical = 16.dp)
-                .fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 5.dp,vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(
+                onClick = { pdfPickerLauncher.launch("application/pdf") },
+                modifier = Modifier.size(35.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add PDF",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
             OutlinedTextField(
                 value = viewModel.message,
                 onValueChange = viewModel::updateMessage,
                 label = { Text("Message") },
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 10.dp)
+                    .padding(end = 4.dp)
             )
 
-            Button(
+            IconButton(
                 onClick = viewModel::send,
-                modifier = Modifier.padding(2.dp)
+                modifier = Modifier.size(35.dp),
             ) {
-                Text(">")
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "Send Message",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
 
-//        Row(Modifier.padding(BubbleCornerShape)) {
-//            Button(onClick = viewModel::send, modifier = Modifier.padding(end = SmallBubbleCornerShape)) {
-//                Text("Send")
-//            }
-//            Button(onClick = viewModel::clear, modifier = Modifier.padding(end = SmallBubbleCornerShape)) {
-//                Text("Clear")
-//            }
-//            Button(onClick = {
-//                val copiedText = viewModel.messages.joinToString("\n") {
-//                    "${it.sender}: ${it.content}"
-//                }
-//                clipboard.setPrimaryClip(ClipData.newPlainText("messages", copiedText))
-//            }) {
-//                Text("Copy")
-//            }
-//        }
+        LaunchedEffect(key1 = messages.size, key2 = isParsing) {
+            if (messages.isNotEmpty()) {
+                scrollState.animateScrollToItem(messages.size)
+            }
+        }
     }
 }
 
@@ -260,21 +339,19 @@ fun DownloadScreen(
     onModelLoaded: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        // Instructions or title
+
         Text(
             "Download Model Lists",
             style = MaterialTheme.typography.headlineMedium,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // List of models to download
         Column(modifier = Modifier.weight(1f)) {
             for (model in models) {
                 Downloadable.Button(viewModel, dm, model, onModelLoaded = onModelLoaded)
             }
         }
 
-        // Unload model button at the bottom
         Button(
             onClick = { viewModel.unload() },
             modifier = Modifier.padding(top = 16.dp)

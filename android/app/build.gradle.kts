@@ -71,6 +71,7 @@ android {
 }
 
 dependencies {
+    implementation ("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation ("org.commonmark:commonmark:0.18.2")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
