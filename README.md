@@ -51,6 +51,8 @@ val models = listOf(
 )
 ```
 
+**TIPS:** If the model is not supported by PowerInfer, we need to add the `ARCH` code in `llama.cpp`. There is a similar example [here](https://github.com/SJTU-IPADS/PowerInfer/commit/b25cb86b0ba9b72af8bf6900a869f7238e876e1d#diff-150dc86746a90bad4fc2c3334aeb9b5887b3adad3cc1459446717638605348ef)
+
 3. Add your own model by adding a new `Downloadable` object to the `models` list.
 
 ## Paper and Citation
